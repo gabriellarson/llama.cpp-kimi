@@ -4339,6 +4339,131 @@ class Gemma3VisionModel(MmprojModel):
         return [] # skip other tensors
 
 
+@ModelBase.register("KimiVLForConditionalGeneration")
+class KimiVLModel(MmprojModel):
+    model_arch = gguf.MODEL_ARCH.KIMI_VL
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        
+        # Kimi-VL has both text and vision components
+        if self.hparams.get("model_type") == "kimi_vl":
+            # Extract text and vision configs from the main config
+            self.hparams_text = self.hparams.get("text_config", {})
+            self.hparams_vision = self.hparams.get("vision_config", {})
+            
+            # Set vision model type for MoonViT
+            if self.hparams_vision.get("model_type") == "moonvit":
+                self.vision_model_type = "moonvit"
+            else:
+                raise ValueError(f"Unsupported vision model type: {self.hparams_vision.get('model_type')}")
+        else:
+            raise ValueError(f"Unsupported model type: {self.hparams.get('model_type')}")
+
+    def set_gguf_parameters(self):
+        super().set_gguf_parameters()
+        
+        # Set vision encoder parameters
+        if hasattr(self, 'hparams_vision') and self.hparams_vision:
+            vision_hparams = self.hparams_vision
+            
+            # Set MoonViT projector type
+            self.gguf_writer.add_clip_projector_type(gguf.VisionProjectorType.MOONVIT)
+            self.gguf_writer.add_vision_use_gelu(True)  # MoonViT typically uses GELU
+            
+            # Vision encoder parameters
+            if "hidden_size" in vision_hparams:
+                self.gguf_writer.add_vision_embedding_length(vision_hparams["hidden_size"])
+            if "num_hidden_layers" in vision_hparams:
+                self.gguf_writer.add_vision_block_count(vision_hparams["num_hidden_layers"])
+            if "num_attention_heads" in vision_hparams:
+                self.gguf_writer.add_vision_head_count(vision_hparams["num_attention_heads"])
+            if "intermediate_size" in vision_hparams:
+                self.gguf_writer.add_vision_feed_forward_length(vision_hparams["intermediate_size"])
+            if "patch_size" in vision_hparams:
+                self.gguf_writer.add_vision_patch_size(vision_hparams["patch_size"])
+            
+            # Image size - use init_pos_emb dimensions to calculate
+            if "init_pos_emb_height" in vision_hparams and "init_pos_emb_width" in vision_hparams:
+                patch_size = vision_hparams.get("patch_size", 14)
+                image_size = vision_hparams["init_pos_emb_height"] * patch_size
+                self.gguf_writer.add_vision_image_size(image_size)
+            
+            # Layer norm epsilon (use a default if not specified)
+            layer_norm_eps = vision_hparams.get("layer_norm_eps", 1e-6)
+            self.gguf_writer.add_vision_attention_layernorm_eps(layer_norm_eps)
+
+        # Set text model parameters (from the embedded text config)
+        if hasattr(self, 'hparams_text') and self.hparams_text:
+            text_hparams = self.hparams_text
+            
+            # Core text model parameters
+            if "vocab_size" in text_hparams:
+                self.gguf_writer.add_vocab_size(text_hparams["vocab_size"])
+            if "max_position_embeddings" in text_hparams:
+                self.gguf_writer.add_context_length(text_hparams["max_position_embeddings"])
+            if "hidden_size" in text_hparams:
+                self.gguf_writer.add_embedding_length(text_hparams["hidden_size"])
+            if "num_attention_heads" in text_hparams:
+                self.gguf_writer.add_head_count(text_hparams["num_attention_heads"])
+            if "num_key_value_heads" in text_hparams:
+                self.gguf_writer.add_head_count_kv(text_hparams["num_key_value_heads"])
+            if "num_hidden_layers" in text_hparams:
+                self.gguf_writer.add_block_count(text_hparams["num_hidden_layers"])
+            if "intermediate_size" in text_hparams:
+                self.gguf_writer.add_feed_forward_length(text_hparams["intermediate_size"])
+            if "rms_norm_eps" in text_hparams:
+                self.gguf_writer.add_layer_norm_rms_eps(text_hparams["rms_norm_eps"])
+            if "rope_theta" in text_hparams:
+                self.gguf_writer.add_rope_freq_base(text_hparams["rope_theta"])
+            
+            # MoE parameters for DeepSeek-V3 architecture
+            if "n_routed_experts" in text_hparams:
+                self.gguf_writer.add_expert_count(text_hparams["n_routed_experts"])
+            if "num_experts_per_tok" in text_hparams:
+                self.gguf_writer.add_expert_used_count(text_hparams["num_experts_per_tok"])
+            if "n_shared_experts" in text_hparams:
+                self.gguf_writer.add_expert_shared_count(text_hparams["n_shared_experts"])
+            if "moe_intermediate_size" in text_hparams:
+                self.gguf_writer.add_expert_feed_forward_length(text_hparams["moe_intermediate_size"])
+                
+            # LoRA attention parameters
+            if "kv_lora_rank" in text_hparams:
+                self.gguf_writer.add_key_value_lora_rank(text_hparams["kv_lora_rank"])
+                
+            # RoPE head dimensions
+            if "qk_rope_head_dim" in text_hparams:
+                self.gguf_writer.add_rope_dimension_count(text_hparams["qk_rope_head_dim"])
+
+    def modify_tensors(self, data_torch: Tensor, name: str, bid: int | None) -> Iterable[tuple[str, Tensor]]:
+        # Handle different tensor types based on name prefixes
+        
+        # Vision model tensors (MoonViT encoder)
+        if name.startswith("vision_tower.") or name.startswith("vision_model."):
+            return [(self.map_tensor_name(name), data_torch)]
+        
+        # Language model tensors (DeepSeek-V3 style)
+        elif name.startswith("language_model."):
+            # For DeepSeek-V3 LoRA attention, we may need special handling
+            if "kv_a_proj_with_mqa" in name or "kv_b_proj" in name:
+                # These are LoRA-style attention projections, pass through as-is
+                return [(self.map_tensor_name(name), data_torch)]
+            elif "experts" in name:
+                # MoE expert tensors, pass through as-is
+                return [(self.map_tensor_name(name), data_torch)]
+            else:
+                # Standard language model tensors
+                return [(self.map_tensor_name(name), data_torch)]
+        
+        # Multimodal projector tensors
+        elif name.startswith("multi_modal_projector.") or name.startswith("mm."):
+            return [(self.map_tensor_name(name), data_torch)]
+        
+        # Default handling for other tensors
+        else:
+            return [(self.map_tensor_name(name), data_torch)]
+
+
 @ModelBase.register("Gemma3nForConditionalGeneration")
 class Gemma3NModel(Gemma3Model):
     model_arch = gguf.MODEL_ARCH.GEMMA3N
