@@ -354,6 +354,7 @@ class MODEL_ARCH(IntEnum):
     BAILINGMOE       = auto()
     DOTS1            = auto()
     ARCEE            = auto()
+    KIMI_VL          = auto()
 
 
 class VISION_PROJECTOR_TYPE(IntEnum):
@@ -654,6 +655,7 @@ MODEL_ARCH_NAMES: dict[MODEL_ARCH, str] = {
     MODEL_ARCH.BAILINGMOE:       "bailingmoe",
     MODEL_ARCH.DOTS1:            "dots1",
     MODEL_ARCH.ARCEE:            "arcee",
+    MODEL_ARCH.KIMI_VL:          "kimi_vl",
 }
 
 VISION_PROJECTOR_TYPE_NAMES: dict[VISION_PROJECTOR_TYPE, str] = {
@@ -2177,6 +2179,32 @@ MODEL_TENSORS: dict[MODEL_ARCH, list[MODEL_TENSOR]] = {
         MODEL_TENSOR.FFN_DOWN,
         MODEL_TENSOR.FFN_UP,
     ],
+    MODEL_ARCH.KIMI_VL: [
+        MODEL_TENSOR.TOKEN_EMBD,
+        MODEL_TENSOR.OUTPUT_NORM,
+        MODEL_TENSOR.OUTPUT,
+        MODEL_TENSOR.ROPE_FREQS,
+        MODEL_TENSOR.ATTN_NORM,
+        MODEL_TENSOR.ATTN_Q,
+        MODEL_TENSOR.ATTN_KV_A_MQA,
+        MODEL_TENSOR.ATTN_KV_B,
+        MODEL_TENSOR.ATTN_K_B,
+        MODEL_TENSOR.ATTN_V_B,
+        MODEL_TENSOR.ATTN_KV_A_NORM,
+        MODEL_TENSOR.ATTN_OUT,
+        MODEL_TENSOR.ATTN_ROT_EMBD,
+        MODEL_TENSOR.FFN_GATE_INP,
+        MODEL_TENSOR.FFN_NORM,
+        MODEL_TENSOR.FFN_GATE,
+        MODEL_TENSOR.FFN_DOWN,
+        MODEL_TENSOR.FFN_UP,
+        MODEL_TENSOR.FFN_GATE_EXP,
+        MODEL_TENSOR.FFN_DOWN_EXP,
+        MODEL_TENSOR.FFN_UP_EXP,
+        MODEL_TENSOR.FFN_GATE_SHEXP,
+        MODEL_TENSOR.FFN_DOWN_SHEXP,
+        MODEL_TENSOR.FFN_UP_SHEXP,
+    ],
     # TODO
 }
 
@@ -2231,6 +2259,10 @@ MODEL_TENSOR_SKIP: dict[MODEL_ARCH, list[MODEL_TENSOR]] = {
     ],
     MODEL_ARCH.BAILINGMOE: [
         MODEL_TENSOR.ROPE_FREQS,
+    ],
+    MODEL_ARCH.KIMI_VL: [
+        MODEL_TENSOR.ROPE_FREQS,
+        MODEL_TENSOR.ATTN_ROT_EMBD,
     ],
 }
 
@@ -2398,6 +2430,7 @@ class VisionProjectorType:
     INTERNVL = "internvl"
     QWEN2A = "qwen2a" # audio
     QWEN25O = "qwen2.5o" # omni
+    MOONVIT = "moonvit"
 
 
 # Items here are (block size, type size)
