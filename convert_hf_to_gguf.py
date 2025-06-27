@@ -4341,7 +4341,7 @@ class Gemma3VisionModel(MmprojModel):
 
 @ModelBase.register("KimiVLForConditionalGeneration")
 class KimiVLModel(MmprojModel):
-    model_arch = gguf.MODEL_ARCH.KIMI_VL
+    model_arch = gguf.MODEL_ARCH.MMPROJ
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
@@ -4362,6 +4362,9 @@ class KimiVLModel(MmprojModel):
 
     def set_gguf_parameters(self):
         super().set_gguf_parameters()
+        
+        # Set the underlying language model architecture
+        self.gguf_writer.add_string("general.architecture", "kimi_vl")
         
         # Set vision encoder parameters
         if hasattr(self, 'hparams_vision') and self.hparams_vision:
