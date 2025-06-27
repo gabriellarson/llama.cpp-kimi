@@ -1513,7 +1513,7 @@ void llama_model::load_hparams(llama_model_loader & ml) {
                 ml.get_key(LLM_KV_EXPERT_USED_COUNT,           hparams.n_expert_used);
                 
                 // KV LoRA parameters for DeepSeek-V3 style attention
-                ml.get_key(LLM_KV_ATTENTION_KEY_VALUE_LORA_RANK, hparams.n_kv_lora_rank, false);
+                ml.get_key(LLM_KV_ATTENTION_KV_LORA_RANK, hparams.n_lora_kv, false);
                 
                 // Model size detection based on layer count from Kimi-VL config
                 switch (hparams.n_layer) {
@@ -4370,15 +4370,15 @@ bool llama_model::load_tensors(llama_model_loader & ml) {
                     const int64_t n_ff_exp = hparams.n_ff_exp;
                     const int64_t n_expert_shared = hparams.n_expert_shared;
                     
-                    model.tok_embd = create_tensor(tn(LLM_TENSOR_TOKEN_EMBD, "weight"), {n_embd, n_vocab}, 0);
+                    tok_embd = create_tensor(tn(LLM_TENSOR_TOKEN_EMBD, "weight"), {n_embd, n_vocab}, 0);
                     
                     // output
-                    model.output_norm = create_tensor(tn(LLM_TENSOR_OUTPUT_NORM, "weight"), {n_embd}, 0);
-                    model.output      = create_tensor(tn(LLM_TENSOR_OUTPUT,      "weight"), {n_embd, n_vocab}, TENSOR_NOT_REQUIRED);
+                    output_norm = create_tensor(tn(LLM_TENSOR_OUTPUT_NORM, "weight"), {n_embd}, 0);
+                    output      = create_tensor(tn(LLM_TENSOR_OUTPUT,      "weight"), {n_embd, n_vocab}, TENSOR_NOT_REQUIRED);
                     
                     // if output is NULL, init from the input tok embed
-                    if (model.output == NULL) {
-                        model.output = create_tensor(tn(LLM_TENSOR_TOKEN_EMBD, "weight"), {n_embd, n_vocab}, TENSOR_DUPLICATED);
+                    if (output == NULL) {
+                        output = create_tensor(tn(LLM_TENSOR_TOKEN_EMBD, "weight"), {n_embd, n_vocab}, TENSOR_DUPLICATED);
                     }
                     
                     for (int i = 0; i < n_layer; ++i) {
@@ -4391,8 +4391,9 @@ bool llama_model::load_tensors(llama_model_loader & ml) {
                         layer.attn_q_norm = create_tensor(tn(LLM_TENSOR_ATTN_Q_NORM, "weight", i), {n_embd_head_k, n_head}, TENSOR_NOT_REQUIRED);
                         
                         // KV LoRA projections (DeepSeek-V3 specific)
+                        const int64_t n_kv_lora_rank = hparams.n_lora_kv;
                         layer.wkv_a_mqa = create_tensor(tn(LLM_TENSOR_ATTN_KV_A_MQA, "weight", i), {n_embd, n_kv_lora_rank + n_embd_head_v}, 0);
-                        layer.wkv_a_norm = create_tensor(tn(LLM_TENSOR_ATTN_KV_A_NORM, "weight", i), {n_kv_lora_rank}, 0);
+                        layer.attn_kv_a_norm = create_tensor(tn(LLM_TENSOR_ATTN_KV_A_NORM, "weight", i), {n_kv_lora_rank}, 0);
                         layer.wkv_b     = create_tensor(tn(LLM_TENSOR_ATTN_KV_B, "weight", i), {n_kv_lora_rank, n_embd_head_k + n_embd_head_v}, 0);
                         
                         layer.wo = create_tensor(tn(LLM_TENSOR_ATTN_OUT, "weight", i), {n_embd_head_v * n_head, n_embd}, 0);
@@ -7400,7 +7401,7 @@ struct llm_build_kimi_vl : public llm_graph_context {
         // DeepSeek-V3 style architecture with LoRA attention and MoE
         const int64_t n_embd_head_k = hparams.n_embd_head_k;
         const int64_t n_embd_head_v = hparams.n_embd_head_v;
-        const int64_t n_kv_lora_rank = hparams.n_kv_lora_rank;
+        const int64_t n_kv_lora_rank = hparams.n_lora_kv;
 
         ggml_tensor * cur;
         ggml_tensor * inpL;
@@ -7449,7 +7450,7 @@ struct llm_build_kimi_vl : public llm_graph_context {
                 cb(Vcur, "Vcur_base", il);
 
                 // Normalize compressed KV
-                kv_cmpr = build_norm(kv_cmpr, model.layers[il].wkv_a_norm, NULL, LLM_NORM_RMS, il);
+                kv_cmpr = build_norm(kv_cmpr, model.layers[il].attn_kv_a_norm, NULL, LLM_NORM_RMS, il);
                 cb(kv_cmpr, "kv_cmpr_norm", il);
 
                 // Decompress K and V using kv_b projection
@@ -15030,6 +15031,7 @@ llama_rope_type llama_model_rope_type(const llama_model * model) {
         case LLM_ARCH_BAILINGMOE:
         case LLM_ARCH_NEO_BERT:
         case LLM_ARCH_ARCEE:
+        case LLM_ARCH_KIMI_VL:
             return LLAMA_ROPE_TYPE_NORM;
 
         // the pairs of head values are offset by n_rot/2
