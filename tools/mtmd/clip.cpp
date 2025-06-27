@@ -1536,6 +1536,72 @@ struct clip_graph {
         return gf;
     }
 
+    ggml_cgraph * build_moonvit() {
+        // MoonViT vision encoder with 2D position embeddings and spatial merging
+        ggml_tensor * inp = build_inp();
+        
+        // Use learned position embeddings if available
+        ggml_tensor * cur = build_vit(
+                                inp, n_patches,
+                                NORM_TYPE_NORMAL,
+                                hparams.ffn_op,
+                                model.position_embeddings,
+                                nullptr);
+        
+        // Optional spatial merging/pooling if merge_kernel_size is specified
+        if (hparams.spatial_merge_size > 1) {
+            const int batch_size = 1;
+            const int merge_size = hparams.spatial_merge_size;
+            
+            // Reshape for spatial merging
+            cur = ggml_cont(ctx0, ggml_transpose(ctx0, cur));
+            cur = ggml_reshape_4d(ctx0, cur, n_patches_x, n_patches_y, n_embd, batch_size);
+            
+            // Apply spatial pooling to reduce patch count
+            cur = ggml_pool_2d(ctx0, cur, GGML_OP_POOL_AVG, merge_size, merge_size, merge_size, merge_size, 0, 0);
+            
+            // Reshape back to sequence format
+            const int new_patches = (n_patches_x / merge_size) * (n_patches_y / merge_size);
+            cur = ggml_reshape_3d(ctx0, cur, new_patches, n_embd, batch_size);
+            cur = ggml_cont(ctx0, ggml_transpose(ctx0, cur));
+        }
+        
+        // Apply final normalization if available
+        if (model.pre_ln_w) {
+            cur = ggml_norm(ctx0, cur, eps);
+            cur = ggml_mul(ctx0, cur, model.pre_ln_w);
+            if (model.pre_ln_b) {
+                cur = ggml_add(ctx0, cur, model.pre_ln_b);
+            }
+        }
+        
+        // Vision projector - standard MLP projection
+        {
+            // First linear layer
+            cur = ggml_mul_mat(ctx0, model.mm_1_w, cur);
+            if (model.mm_1_b) {
+                cur = ggml_add(ctx0, cur, model.mm_1_b);
+            }
+            
+            // Activation (typically GELU for vision models)
+            cur = ggml_gelu(ctx0, cur);
+            
+            // Second linear layer if available
+            if (model.mm_2_w) {
+                cur = ggml_mul_mat(ctx0, model.mm_2_w, cur);
+                if (model.mm_2_b) {
+                    cur = ggml_add(ctx0, cur, model.mm_2_b);
+                }
+            }
+        }
+        
+        cb(cur, "projected", -1);
+        
+        ggml_build_forward_expand(gf, cur);
+        
+        return gf;
+    }
+
 private:
     //
     // utility functions
@@ -1980,6 +2046,10 @@ static ggml_cgraph * clip_image_build_graph(clip_ctx * ctx, const clip_image_f32
         case PROJECTOR_TYPE_QWEN2A:
             {
                 res = graph.build_whisper_enc();
+            } break;
+        case PROJECTOR_TYPE_MOONVIT:
+            {
+                res = graph.build_moonvit();
             } break;
         default:
             {
