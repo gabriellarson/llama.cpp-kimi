@@ -30,7 +30,7 @@ class TensorNameMap:
             "rwkv.embeddings",                           # rwkv6
             "model.embeddings",                          # rwkv7
             "model.word_embeddings",                     # bailingmoe
-            "language_model.model.embed_tokens",         # llama4
+            "language_model.model.embed_tokens",         # llama4 kimi_vl
             "encoder",                                   # neobert
         ),
 
@@ -69,6 +69,7 @@ class TensorNameMap:
             "output_layer",              # chatglm
             "head",                      # rwkv
             "head.out",                  # wavtokenizer
+            "language_model.lm_head",    # kimi_vl
             "lm_head",                   # llama4
         ),
 
@@ -92,6 +93,7 @@ class TensorNameMap:
             "rwkv.ln_out",                             # rwkv6
             "model.ln_out",                            # rwkv7
             "backbone.final_layer_norm",               # wavtokenizer
+            "language_model.model.norm",               # kimi_vl
             "model.norm",                              # llama4
         ),
 
@@ -134,6 +136,7 @@ class TensorNameMap:
             "transformer.layers.{bid}.attn_norm",                   # openelm
             "rwkv.blocks.{bid}.ln1",                                # rwkv6
             "model.layers.{bid}.ln1",                               # rwkv7
+            "language_model.model.layers.{bid}.input_layernorm",    # kimi_vl
             "model.layers.{bid}.input_layernorm",                   # llama4
             "transformer_encoder.{bid}.attention_norm",             # neobert
         ),
@@ -178,6 +181,7 @@ class TensorNameMap:
             "model.layers.{bid}.attention.wq",                           # internlm2
             "transformer.decoder_layer.{bid}.multi_head_attention.query",# Grok
             "transformer.h.{bid}.attn.attention.q_proj",                 # exaone
+            "language_model.model.layers.{bid}.self_attn.q_proj",        # kimi_vl
             "model.layers.{bid}.self_attn.q_proj",                       # llama4
         ),
 
@@ -238,6 +242,7 @@ class TensorNameMap:
             "encoder.layers.{bid}.self_attention.dense",                    # chatglm
             "transformer.layers.{bid}.attn.out_proj",                       # openelm
             "transformer.h.{bid}.attn.attention.out_proj",                  # exaone
+            "language_model.model.layers.{bid}.self_attn.o_proj",           # kimi_vl
             "model.layers.{bid}.self_attn.o_proj",                          # llama4
             "transformer_encoder.{bid}.wo",                                 # neobert
         ),
@@ -279,6 +284,7 @@ class TensorNameMap:
             "transformer.decoder_layer.{bid}.rms_norm_2",                    # Grok
             "encoder.layers.{bid}.post_attention_layernorm",                 # chatglm
             "transformer.layers.{bid}.ffn_norm",                             # openelm
+            "language_model.model.layers.{bid}.post_attention_layernorm",    # kimi_vl
             "model.layers.{bid}.post_attention_layernorm",                   # llama4
             "transformer_encoder.{bid}.ffn_norm",                            # neobert
         ),
@@ -303,6 +309,7 @@ class TensorNameMap:
             "model.layers.{bid}.block_sparse_moe.router.layer", # granitemoe
             "model.layers.{bid}.feed_forward.router",           # llama4
             "encoder.layers.{bid}.mlp.router.layer",            # nomic-bert-moe
+            "language_model.model.layers.{bid}.mlp.gate",                      # kimi_vl
         ),
 
         MODEL_TENSOR.FFN_GATE_INP_SHEXP: (
@@ -346,6 +353,7 @@ class TensorNameMap:
             "transformer.h.{bid}.mlp.c_fc_1",                         # exaone
             "model.layers.{bid}.feed_forward.up_proj",                # llama4
             "transformer_encoder.{bid}.ffn.w12",                      # neobert
+            "language_model.model.layers.{bid}.mlp.up_proj",          # kimi_vl
         ),
 
         MODEL_TENSOR.FFN_UP_EXP: (
@@ -356,12 +364,14 @@ class TensorNameMap:
             "model.layers.{bid}.block_sparse_moe.experts.w3", # phimoe (merged)
             "model.layers.{bid}.feed_forward.experts.up_proj", # llama4
             "encoder.layers.{bid}.mlp.experts.mlp.w1",        # nomic-bert-moe
+            "language_model.model.layers.{bid}.mlp.experts.up_proj",      # kimi_vl
         ),
 
         MODEL_TENSOR.FFN_UP_SHEXP: (
             "model.layers.{bid}.mlp.shared_expert.up_proj",          # qwen2moe
             "model.layers.{bid}.mlp.shared_experts.up_proj",         # deepseek deepseek2
             "model.layers.{bid}.feed_forward.shared_expert.up_proj", # llama4
+            "language_model.model.layers.{bid}.mlp.shared_experts.up_proj",           # kimi_vl
         ),
 
         # AWQ-activation gate
@@ -383,6 +393,7 @@ class TensorNameMap:
             "model.layers.{bid}.residual_mlp.w1",         # arctic
             "transformer.h.{bid}.mlp.c_fc_0",             # exaone
             "model.layers.{bid}.feed_forward.gate_proj",  # llama4
+            "language_model.model.layers.{bid}.mlp.gate_proj",    # kimi_vl
         ),
 
         MODEL_TENSOR.FFN_GATE_EXP: (
@@ -392,12 +403,14 @@ class TensorNameMap:
             "model.layers.{bid}.mlp.experts.gate_proj",          # qwen2moe olmoe (merged)
             "model.layers.{bid}.block_sparse_moe.experts.w1",    # phimoe (merged)
             "model.layers.{bid}.feed_forward.experts.gate_proj", # llama4
+            "language_model.model.layers.{bid}.mlp.experts.gate_proj",    # kimi_vl
         ),
 
         MODEL_TENSOR.FFN_GATE_SHEXP: (
             "model.layers.{bid}.mlp.shared_expert.gate_proj",          # qwen2moe
             "model.layers.{bid}.mlp.shared_experts.gate_proj",         # deepseek deepseek2
             "model.layers.{bid}.feed_forward.shared_expert.gate_proj", # llama4
+            "language_model.model.layers.{bid}.mlp.shared_experts.gate_proj",         # kimi_vl
         ),
 
         # Feed-forward down
@@ -429,6 +442,7 @@ class TensorNameMap:
             "model.layers.h.{bid}.mlp.c_proj",                        # exaone
             "model.layers.{bid}.feed_forward.down_proj",              # llama4
             "transformer_encoder.{bid}.ffn.w3",                       # neobert
+            "language_model.model.layers.{bid}.mlp.down_proj",        # kimi_vl
         ),
 
         MODEL_TENSOR.FFN_DOWN_EXP: (
@@ -440,6 +454,7 @@ class TensorNameMap:
             "model.layers.{bid}.block_sparse_moe.experts.w2",    # phimoe (merged)
             "model.layers.{bid}.feed_forward.experts.down_proj", # llama4
             "encoder.layers.{bid}.mlp.experts.mlp.w2",           # nomic-bert-moe
+            "language_model.model.layers.{bid}.mlp.experts.down_proj",    # kimi_vl
         ),
 
         MODEL_TENSOR.FFN_DOWN_SHEXP: (
@@ -447,6 +462,7 @@ class TensorNameMap:
             "model.layers.{bid}.mlp.shared_experts.down_proj",         # deepseek deepseek2
             "model.layers.{bid}.feed_forward.shared_expert.down_proj", # llama4
             "model.layers.{bid}.shared_mlp.output_linear",             # granitemoe
+            "language_model.model.layers.{bid}.mlp.shared_experts.down_proj",         # kimi_vl
         ),
 
         MODEL_TENSOR.ATTN_Q_NORM: (
@@ -759,18 +775,22 @@ class TensorNameMap:
 
         MODEL_TENSOR.ATTN_KV_A_MQA: (
             "model.layers.{bid}.self_attn.kv_a_proj_with_mqa", # deepseek2
+            "language_model.model.layers.{bid}.self_attn.kv_a_proj_with_mqa", # kimi_vl
         ),
 
         MODEL_TENSOR.ATTN_KV_B: (
             "model.layers.{bid}.self_attn.kv_b_proj", # deepseek2
+            "language_model.model.layers.{bid}.self_attn.kv_b_proj", # kimi_vl
         ),
 
         MODEL_TENSOR.ATTN_K_B: (
             "model.layers.{bid}.self_attn.k_b_proj",  # deepseek2
+            "language_model.model.layers.{bid}.self_attn.kv_b_proj",  # kimi_vl (uses same tensor)
         ),
 
         MODEL_TENSOR.ATTN_V_B: (
             "model.layers.{bid}.self_attn.v_b_proj",  # deepseek2
+            "language_model.model.layers.{bid}.self_attn.kv_b_proj",  # kimi_vl (uses same tensor)
         ),
 
         MODEL_TENSOR.ATTN_Q_A_NORM: (
@@ -779,6 +799,7 @@ class TensorNameMap:
 
         MODEL_TENSOR.ATTN_KV_A_NORM: (
             "model.layers.{bid}.self_attn.kv_a_layernorm", # deepseek2
+            "language_model.model.layers.{bid}.self_attn.kv_a_layernorm", # kimi_vl
         ),
 
         MODEL_TENSOR.ATTN_SUB_NORM: (
