@@ -1504,6 +1504,23 @@ void llama_model::load_hparams(llama_model_loader & ml) {
                     default: type = LLM_TYPE_UNKNOWN;
                 }
             } break;
+        case LLM_ARCH_KIMI_VL:
+            {
+                ml.get_key(LLM_KV_ATTENTION_LAYERNORM_RMS_EPS, hparams.f_norm_rms_eps);
+                ml.get_key(LLM_KV_EXPERT_FEED_FORWARD_LENGTH,  hparams.n_ff_exp);
+                ml.get_key(LLM_KV_EXPERT_SHARED_COUNT,         hparams.n_expert_shared);
+                ml.get_key(LLM_KV_EXPERT_WEIGHTS_SCALE,        hparams.expert_weights_scale, false);
+                ml.get_key(LLM_KV_EXPERT_USED_COUNT,           hparams.n_expert_used);
+                
+                // KV LoRA parameters for DeepSeek-V3 style attention
+                ml.get_key(LLM_KV_ATTENTION_KEY_VALUE_LORA_RANK, hparams.n_kv_lora_rank, false);
+                
+                // Model size detection based on layer count from Kimi-VL config
+                switch (hparams.n_layer) {
+                    case 27: type = LLM_TYPE_3B; break;  // Kimi-VL-A3B has 27 layers
+                    default: type = LLM_TYPE_UNKNOWN;
+                }
+            } break;
         default: throw std::runtime_error("unsupported model architecture");
     }
 
@@ -4346,6 +4363,57 @@ bool llama_model::load_tensors(llama_model_loader & ml) {
 
                         layer.ffn_down = create_tensor(tn(LLM_TENSOR_FFN_DOWN, "weight", i), {  n_ff, n_embd}, 0);
                         layer.ffn_up   = create_tensor(tn(LLM_TENSOR_FFN_UP,   "weight", i), {n_embd,   n_ff}, 0);
+                    }
+                } break;
+            case LLM_ARCH_KIMI_VL:
+                {
+                    const int64_t n_ff_exp = hparams.n_ff_exp;
+                    const int64_t n_expert_shared = hparams.n_expert_shared;
+                    
+                    model.tok_embd = create_tensor(tn(LLM_TENSOR_TOKEN_EMBD, "weight"), {n_embd, n_vocab}, 0);
+                    
+                    // output
+                    model.output_norm = create_tensor(tn(LLM_TENSOR_OUTPUT_NORM, "weight"), {n_embd}, 0);
+                    model.output      = create_tensor(tn(LLM_TENSOR_OUTPUT,      "weight"), {n_embd, n_vocab}, TENSOR_NOT_REQUIRED);
+                    
+                    // if output is NULL, init from the input tok embed
+                    if (model.output == NULL) {
+                        model.output = create_tensor(tn(LLM_TENSOR_TOKEN_EMBD, "weight"), {n_embd, n_vocab}, TENSOR_DUPLICATED);
+                    }
+                    
+                    for (int i = 0; i < n_layer; ++i) {
+                        auto & layer = layers[i];
+                        
+                        layer.attn_norm = create_tensor(tn(LLM_TENSOR_ATTN_NORM, "weight", i), {n_embd}, 0);
+                        
+                        // DeepSeek-V3 style LoRA attention
+                        layer.wq       = create_tensor(tn(LLM_TENSOR_ATTN_Q,       "weight", i), {n_embd, n_embd_head_k * n_head}, 0);
+                        layer.attn_q_norm = create_tensor(tn(LLM_TENSOR_ATTN_Q_NORM, "weight", i), {n_embd_head_k, n_head}, TENSOR_NOT_REQUIRED);
+                        
+                        // KV LoRA projections (DeepSeek-V3 specific)
+                        layer.wkv_a_mqa = create_tensor(tn(LLM_TENSOR_ATTN_KV_A_MQA, "weight", i), {n_embd, n_kv_lora_rank + n_embd_head_v}, 0);
+                        layer.wkv_a_norm = create_tensor(tn(LLM_TENSOR_ATTN_KV_A_NORM, "weight", i), {n_kv_lora_rank}, 0);
+                        layer.wkv_b     = create_tensor(tn(LLM_TENSOR_ATTN_KV_B, "weight", i), {n_kv_lora_rank, n_embd_head_k + n_embd_head_v}, 0);
+                        
+                        layer.wo = create_tensor(tn(LLM_TENSOR_ATTN_OUT, "weight", i), {n_embd_head_v * n_head, n_embd}, 0);
+                        
+                        // feed-forward
+                        layer.ffn_norm = create_tensor(tn(LLM_TENSOR_FFN_NORM, "weight", i), {n_embd}, 0);
+                        
+                        // MoE gate (router)
+                        layer.ffn_gate_inp = create_tensor(tn(LLM_TENSOR_FFN_GATE_INP, "weight", i), {n_embd, n_expert}, 0);
+                        
+                        // Expert tensors - all experts in one tensor
+                        layer.ffn_gate_exps = create_tensor(tn(LLM_TENSOR_FFN_GATE_EXP, "weight", i), {n_embd, n_ff_exp, n_expert}, 0);
+                        layer.ffn_down_exps = create_tensor(tn(LLM_TENSOR_FFN_DOWN_EXP, "weight", i), {n_ff_exp, n_embd, n_expert}, 0);
+                        layer.ffn_up_exps   = create_tensor(tn(LLM_TENSOR_FFN_UP_EXP,   "weight", i), {n_embd, n_ff_exp, n_expert}, 0);
+                        
+                        // Shared expert tensors (DeepSeek-V3 has 2 shared experts)
+                        if (n_expert_shared > 0) {
+                            layer.ffn_gate_shexp = create_tensor(tn(LLM_TENSOR_FFN_GATE_SHEXP, "weight", i), {n_embd, n_ff_exp * n_expert_shared}, 0);
+                            layer.ffn_down_shexp = create_tensor(tn(LLM_TENSOR_FFN_DOWN_SHEXP, "weight", i), {n_ff_exp * n_expert_shared, n_embd}, 0);
+                            layer.ffn_up_shexp   = create_tensor(tn(LLM_TENSOR_FFN_UP_SHEXP,   "weight", i), {n_embd, n_ff_exp * n_expert_shared}, 0);
+                        }
                     }
                 } break;
             default:
@@ -7321,6 +7389,178 @@ struct llm_build_qwen2moe : public llm_graph_context {
         cur = build_lora_mm(model.output, cur);
 
         cb(cur, "result_output", -1);
+        res->t_logits = cur;
+
+        ggml_build_forward_expand(gf, cur);
+    }
+};
+
+struct llm_build_kimi_vl : public llm_graph_context {
+    llm_build_kimi_vl(const llama_model & model, const llm_graph_params & params, ggml_cgraph * gf) : llm_graph_context(params) {
+        // DeepSeek-V3 style architecture with LoRA attention and MoE
+        const int64_t n_embd_head_k = hparams.n_embd_head_k;
+        const int64_t n_embd_head_v = hparams.n_embd_head_v;
+        const int64_t n_kv_lora_rank = hparams.n_kv_lora_rank;
+
+        ggml_tensor * cur;
+        ggml_tensor * inpL;
+
+        inpL = build_inp_embd(model.tok_embd);
+
+        // inp_pos - contains the positions
+        ggml_tensor * inp_pos = build_inp_pos();
+
+        auto * inp_attn = build_attn_inp_kv_unified();
+
+        ggml_tensor * inp_out_ids = build_inp_out_ids();
+
+        for (int il = 0; il < n_layer; ++il) {
+            ggml_tensor * inpSA = inpL;
+
+            // norm
+            cur = build_norm(inpL,
+                    model.layers[il].attn_norm, NULL,
+                    LLM_NORM_RMS, il);
+            cb(cur, "attn_norm", il);
+
+            // self_attention
+            {
+                // compute Q 
+                ggml_tensor * Qcur = build_lora_mm(model.layers[il].wq, cur);
+                cb(Qcur, "Qcur", il);
+
+                Qcur = ggml_reshape_3d(ctx0, Qcur, n_embd_head_k, n_head, n_tokens);
+
+                // DeepSeek-V3 style LoRA KV projections
+                ggml_tensor * kv_a = build_lora_mm(model.layers[il].wkv_a_mqa, cur);
+                cb(kv_a, "kv_a", il);
+
+                // Split kv_a into compressed KV and V
+                ggml_tensor * kv_cmpr = ggml_view_2d(ctx0, kv_a,
+                        n_kv_lora_rank, n_tokens,
+                        ggml_row_size(kv_a->type, n_kv_lora_rank + n_embd_head_v),
+                        0);
+                cb(kv_cmpr, "kv_cmpr", il);
+
+                ggml_tensor * Vcur = ggml_view_2d(ctx0, kv_a,
+                        n_embd_head_v, n_tokens,
+                        ggml_row_size(kv_a->type, n_kv_lora_rank + n_embd_head_v),
+                        ggml_row_size(kv_a->type, n_kv_lora_rank));
+                cb(Vcur, "Vcur_base", il);
+
+                // Normalize compressed KV
+                kv_cmpr = build_norm(kv_cmpr, model.layers[il].wkv_a_norm, NULL, LLM_NORM_RMS, il);
+                cb(kv_cmpr, "kv_cmpr_norm", il);
+
+                // Decompress K and V using kv_b projection
+                ggml_tensor * kv_decompressed = build_lora_mm(model.layers[il].wkv_b, kv_cmpr);
+                cb(kv_decompressed, "kv_decompressed", il);
+
+                // Split into K and V components
+                ggml_tensor * Kcur = ggml_view_2d(ctx0, kv_decompressed,
+                        n_embd_head_k, n_tokens,
+                        ggml_row_size(kv_decompressed->type, n_embd_head_k + n_embd_head_v),
+                        0);
+                cb(Kcur, "Kcur", il);
+
+                ggml_tensor * Vcur_delta = ggml_view_2d(ctx0, kv_decompressed,
+                        n_embd_head_v, n_tokens,
+                        ggml_row_size(kv_decompressed->type, n_embd_head_k + n_embd_head_v),
+                        ggml_row_size(kv_decompressed->type, n_embd_head_k));
+                cb(Vcur_delta, "Vcur_delta", il);
+
+                // Combine base V with delta V
+                Vcur = ggml_add(ctx0, Vcur, Vcur_delta);
+                cb(Vcur, "Vcur", il);
+
+                // Reshape for attention
+                Kcur = ggml_reshape_3d(ctx0, Kcur, n_embd_head_k, n_head_kv, n_tokens);
+                Vcur = ggml_reshape_3d(ctx0, Vcur, n_embd_head_v, n_head_kv, n_tokens);
+
+                // Apply RoPE to Q and K
+                Qcur = ggml_rope_ext(
+                        ctx0, Qcur, inp_pos, nullptr,
+                        n_rot, rope_type, n_ctx_orig, freq_base, freq_scale,
+                        ext_factor, attn_factor, beta_fast, beta_slow
+                        );
+
+                Kcur = ggml_rope_ext(
+                        ctx0, Kcur, inp_pos, nullptr,
+                        n_rot, rope_type, n_ctx_orig, freq_base, freq_scale,
+                        ext_factor, attn_factor, beta_fast, beta_slow
+                        );
+
+                cb(Qcur, "Qcur_rope", il);
+                cb(Kcur, "Kcur_rope", il);
+                cb(Vcur, "Vcur_final", il);
+
+                cur = build_attn(inp_attn, gf,
+                        model.layers[il].wo, NULL,
+                        Qcur, Kcur, Vcur, nullptr, nullptr, 1.0f/sqrtf(float(n_embd_head_k)), il);
+            }
+
+            if (il == n_layer - 1 && inp_out_ids) {
+                cur   = ggml_get_rows(ctx0,   cur, inp_out_ids);
+                inpSA = ggml_get_rows(ctx0, inpSA, inp_out_ids);
+            }
+
+            ggml_tensor * ffn_inp = ggml_add(ctx0, cur, inpSA);
+            cb(ffn_inp, "ffn_inp", il);
+
+            // MoE feed-forward
+            cur = build_norm(ffn_inp,
+                    model.layers[il].ffn_norm, NULL,
+                    LLM_NORM_RMS, il);
+            cb(cur, "ffn_norm", il);
+
+            // MoE expert routing and computation
+            ggml_tensor * moe_out =
+                build_moe_ffn(cur,
+                        model.layers[il].ffn_gate_inp,
+                        model.layers[il].ffn_up_exps,
+                        model.layers[il].ffn_gate_exps,
+                        model.layers[il].ffn_down_exps,
+                        nullptr,
+                        n_expert, n_expert_used,
+                        LLM_FFN_SILU, false,
+                        false, 0.0,
+                        LLAMA_EXPERT_GATING_FUNC_TYPE_SOFTMAX,
+                        il);
+            cb(moe_out, "ffn_moe_out", il);
+
+            // Shared experts (DeepSeek-V3 style)
+            if (model.layers[il].ffn_gate_shexp) {
+                ggml_tensor * ffn_shexp = build_ffn(cur,
+                        model.layers[il].ffn_up_shexp,   NULL, NULL,
+                        model.layers[il].ffn_gate_shexp, NULL, NULL,
+                        model.layers[il].ffn_down_shexp, NULL, NULL,
+                        NULL,
+                        LLM_FFN_SILU, LLM_FFN_PAR, il);
+                cb(ffn_shexp, "ffn_shexp", il);
+
+                moe_out = ggml_add(ctx0, moe_out, ffn_shexp);
+                cb(moe_out, "ffn_out", il);
+            }
+
+            cur = moe_out;
+            cur = ggml_add(ctx0, cur, ffn_inp);
+
+            cur = build_cvec(cur, il);
+            cb(cur, "l_out", il);
+
+            // input for next layer
+            inpL = cur;
+        }
+
+        cur = inpL;
+
+        cur = build_norm(cur, model.output_norm, NULL, LLM_NORM_RMS, -1);
+        cb(cur, "result_norm", -1);
+
+        // lm_head
+        cur = build_lora_mm(model.output, cur);
+        cb(cur, "result_output", -1);
+
         res->t_logits = cur;
 
         ggml_build_forward_expand(gf, cur);
@@ -14634,6 +14874,10 @@ llm_graph_result_ptr llama_model::build_graph(
         case LLM_ARCH_ARCEE:
             {
                 llm = std::make_unique<llm_build_arcee>(*this, params, gf);
+            } break;
+        case LLM_ARCH_KIMI_VL:
+            {
+                llm = std::make_unique<llm_build_kimi_vl>(*this, params, gf);
             } break;
         default:
             GGML_ABORT("fatal error");
