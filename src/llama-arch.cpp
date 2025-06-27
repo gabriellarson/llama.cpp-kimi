@@ -76,6 +76,7 @@ static const std::map<llm_arch, const char *> LLM_ARCH_NAMES = {
     { LLM_ARCH_BAILINGMOE,       "bailingmoe"       },
     { LLM_ARCH_DOTS1,            "dots1"            },
     { LLM_ARCH_ARCEE,            "arcee"            },
+    { LLM_ARCH_KIMI_VL,          "kimi_vl"          },
     { LLM_ARCH_UNKNOWN,          "(unknown)"        },
 };
 
@@ -1657,6 +1658,32 @@ static const std::map<llm_arch, std::map<llm_tensor, const char *>> LLM_TENSOR_N
             { LLM_TENSOR_FFN_UP_SHEXP,       "blk.%d.ffn_up_shexp" },
             { LLM_TENSOR_FFN_EXP_PROBS_B,    "blk.%d.exp_probs_b" },
         }
+    },
+    {
+        LLM_ARCH_KIMI_VL,
+        {
+            { LLM_TENSOR_TOKEN_EMBD,         "language_model.model.embed_tokens" },
+            { LLM_TENSOR_OUTPUT_NORM,        "language_model.model.norm" },
+            { LLM_TENSOR_OUTPUT,             "language_model.lm_head" },
+            { LLM_TENSOR_ATTN_NORM,          "language_model.model.layers.%d.input_layernorm" },
+            { LLM_TENSOR_ATTN_Q,             "language_model.model.layers.%d.self_attn.q_proj" },
+            { LLM_TENSOR_ATTN_K_B,           "language_model.model.layers.%d.self_attn.kv_b_proj" },
+            { LLM_TENSOR_ATTN_V_B,           "language_model.model.layers.%d.self_attn.kv_b_proj" },
+            { LLM_TENSOR_ATTN_KV_A_MQA,      "language_model.model.layers.%d.self_attn.kv_a_proj_with_mqa" },
+            { LLM_TENSOR_ATTN_KV_A_NORM,     "language_model.model.layers.%d.self_attn.kv_a_layernorm" },
+            { LLM_TENSOR_ATTN_OUT,           "language_model.model.layers.%d.self_attn.o_proj" },
+            { LLM_TENSOR_FFN_NORM,           "language_model.model.layers.%d.post_attention_layernorm" },
+            { LLM_TENSOR_FFN_GATE_INP,       "language_model.model.layers.%d.mlp.gate" },
+            { LLM_TENSOR_FFN_GATE_EXPS,      "language_model.model.layers.%d.mlp.experts.%d.gate_proj" },
+            { LLM_TENSOR_FFN_DOWN_EXPS,      "language_model.model.layers.%d.mlp.experts.%d.down_proj" },
+            { LLM_TENSOR_FFN_UP_EXPS,        "language_model.model.layers.%d.mlp.experts.%d.up_proj" },
+            { LLM_TENSOR_FFN_GATE_SHEXP,     "language_model.model.layers.%d.mlp.shared_experts.gate_proj" },
+            { LLM_TENSOR_FFN_DOWN_SHEXP,     "language_model.model.layers.%d.mlp.shared_experts.down_proj" },
+            { LLM_TENSOR_FFN_UP_SHEXP,       "language_model.model.layers.%d.mlp.shared_experts.up_proj" },
+            { LLM_TENSOR_FFN_GATE,           "language_model.model.layers.%d.mlp.gate_proj" },
+            { LLM_TENSOR_FFN_DOWN,           "language_model.model.layers.%d.mlp.down_proj" },
+            { LLM_TENSOR_FFN_UP,             "language_model.model.layers.%d.mlp.up_proj" },
+        },
     },
     {
         LLM_ARCH_UNKNOWN,
